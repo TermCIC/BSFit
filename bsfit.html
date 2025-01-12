@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Richards Growth Model Estimation</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        canvas {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Richards Growth Model Estimation</h1>
+    <p>Input the day and size values below to calculate the Richards growth model and view the results.</p>
+
+    <textarea id="dataInput" rows="10" cols="50" placeholder='[{"day": 1, "size": 0.5}, {"day": 2, "size": 0.6}]'></textarea>
+    <br><br>
+    <button onclick="processData()">Estimate</button>
+
+    <h2>Results</h2>
+    <div id="results"></div>
+
+    <canvas id="growthChart" width="600" height="400"></canvas>
+
+    <script>
+        // Function for the Richards growth model
+        function richardsModel(t, L, K, m, W0) {
+            return L / (1 + Math.exp(-K * (t - m))) + W0;
+        }
+
+        function processData() {
+            const input = document.getElementById("dataInput").value;
+
+            try {
+                // Parse input data
+                const data = JSON.parse(input);
+                const days = data.map(d => d.day);
+                const sizes = data.map(d => d.size);
+
+                // Initial estimate for W0
+                const W0 = sizes[0] || 0;
+
+                // Estimate L, K, and m using simple linear regression approximations
+                const L = Math.max(...sizes); // Max size as an approximation for L
+                const m = days.reduce((a, b) => a + b, 0) / days.length; // Median day approximation for m
+                const K = 1; // Default growth rate
+
+                // Predicted values
+                const tPred = Array.from({ length: 100 }, (_, i) => i + 1);
+                const yPred = tPred.map(t => richardsModel(t, L, K, m, W0));
+
+                // Display parameters
+                document.getElementById("results").innerHTML = `
+                    <p><strong>Estimated Parameters:</strong></p>
+                    <p>L (Carrying Capacity): ${L.toFixed(4)}</p>
+                    <p>K (Growth Rate): ${K.toFixed(4)}</p>
+                    <p>m (Inflection Point): ${m.toFixed(4)}</p>
+                `;
+
+                // Plotting results using Chart.js
+                const ctx = document.getElementById("growthChart").getContext("2d");
+                new Chart(ctx, {
+                    type: "line",
+                    data: {
+                        labels: tPred,
+                        datasets: [
+                            {
+                                label: "Model Prediction",
+                                data: yPred,
+                                borderColor: "red",
+                                fill: false,
+                                tension: 0.1,
+                            },
+                            {
+                                label: "Observed Data",
+                                data: sizes,
+                                borderColor: "blue",
+                                backgroundColor: "blue",
+                                fill: false,
+                                tension: 0.1,
+                                pointStyle: "circle",
+                                pointRadius: 5,
+                                showLine: false,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: { title: { display: true, text: "Days" } },
+                            y: { title: { display: true, text: "Size" } }
+                        }
+                    }
+                });
+            } catch (e) {
+                alert("Invalid JSON input. Please use the format: [{\"day\": 1, \"size\": 0.5}, {\"day\": 2, \"size\": 0.6}]");
+            }
+        }
+    </script>
+</body>
+</html>
