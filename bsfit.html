@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Richards Growth Model Estimation</title>
+    <title>Logistic Growth Model Estimation</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
@@ -12,7 +12,7 @@
             margin: 0;
             padding: 20px;
         }
-        h1, h2 {
+        h1, h2, h3 {
             text-align: center;
         }
         .container {
@@ -57,7 +57,9 @@
     </style>
 </head>
 <body>
-    <h1>Richards Growth Model Estimation</h1>
+    <h1>Logistic Growth Model Estimation</h1>
+    <h3>by Dr. Chun-I Chiu</h3>
+    <h3>Department of Entomology and Plant Pathology, Chiang Mai University</h3>
     <div class="container">
         <h2>Input Data</h2>
         <button onclick="addDay()">Add Day</button><br><br>
@@ -92,7 +94,7 @@
             tableBody.appendChild(row);
         }
 
-        function richardsModel(t, params) {
+        function logisticModel(t, params) {
             const [L, K, m, W0] = params;
             return L / (1 + Math.exp(-K * (t - m))) + W0;
         }
@@ -103,7 +105,7 @@
             const tolerance = 1e-6;
 
             let residuals = (params) => {
-                return t.map((ti, i) => y[i] - richardsModel(ti, params));
+                return t.map((ti, i) => y[i] - logisticModel(ti, params));
             };
 
             let loss = (params) => {
@@ -135,78 +137,120 @@
             return params;
         }
 
-        function processData() {
-            const rows = document.querySelectorAll("#dataTable tbody tr");
-            const days = [];
-            const sizes = [];
+        const numBootstrapIterations = 1000; // Number of bootstrap iterations
 
-            rows.forEach((row) => {
-                const day = parseFloat(row.children[0].querySelector("input").value);
-                const size = parseFloat(row.children[1].querySelector("input").value);
-                if (!isNaN(day) && !isNaN(size)) {
-                    days.push(day);
-                    sizes.push(size);
-                }
-            });
+    function bootstrapModel(days, sizes, numIterations) {
+        const bootstrapParams = [];
 
-            if (days.length === 0 || sizes.length === 0) {
-                alert("Please enter valid data for at least one day.");
-                return;
-            }
+        for (let i = 0; i < numIterations; i++) {
+            // Generate a bootstrap sample
+            const resampleIndices = Array.from({ length: days.length }, () =>
+                Math.floor(Math.random() * days.length)
+            );
+            const resampledDays = resampleIndices.map((index) => days[index]);
+            const resampledSizes = resampleIndices.map((index) => sizes[index]);
 
-            // Optimize parameters using custom Levenberg-Marquardt
-            const params = levenbergMarquardtFit(days, sizes);
-
-            const tPred = Array.from({ length: Math.max(...days) + 1 }, (_, i) => i);
-            const yPred = tPred.map((t) => richardsModel(t, params));
-
-            const [L, K, m, W0] = params;
-
-            document.getElementById("results").innerHTML = `
-                <p><strong>Estimated Parameters:</strong></p>
-                <p>L (Carrying Capacity): ${L.toFixed(4)}</p>
-                <p>K (Growth Rate): ${K.toFixed(4)}</p>
-                <p>m (Inflection Point): ${m.toFixed(4)}</p>
-                <p>W0 (Initial Size): ${W0.toFixed(4)}</p>
-            `;
-
-            if (chartInstance) chartInstance.destroy();
-
-            const ctx = document.getElementById("chart").getContext("2d");
-            chartInstance = new Chart(ctx, {
-                type: "line",
-                data: {
-                    labels: tPred,
-                    datasets: [
-                        {
-                            label: "Model Prediction",
-                            data: yPred,
-                            borderColor: "red",
-                            fill: false,
-                            tension: 0.1,
-                        },
-                        {
-                            label: "Observed Data",
-                            data: sizes,
-                            borderColor: "blue",
-                            backgroundColor: "blue",
-                            fill: false,
-                            tension: 0.1,
-                            pointStyle: "circle",
-                            pointRadius: 5,
-                            showLine: false,
-                        },
-                    ],
-                },
-                options: {
-                    responsive: true,
-                    scales: {
-                        x: { title: { display: true, text: "Days" }, min: 0 },
-                        y: { title: { display: true, text: "Size" } },
-                    },
-                },
-            });
+            // Fit the model to the resampled data
+            const params = levenbergMarquardtFit(resampledDays, resampledSizes);
+            bootstrapParams.push(params);
         }
+
+        return bootstrapParams;
+    }
+
+    function calculateBootstrapStatistics(bootstrapParams, paramIndex) {
+        const paramValues = bootstrapParams.map((params) => params[paramIndex]);
+        const mean = paramValues.reduce((sum, value) => sum + value, 0) / paramValues.length;
+        const variance =
+            paramValues.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+            (paramValues.length - 1);
+        const se = Math.sqrt(variance);
+        const ciLower = mean - 1.96 * se;
+        const ciUpper = mean + 1.96 * se;
+
+        return { mean, se, ciLower, ciUpper };
+    }
+
+    function processData() {
+        const rows = document.querySelectorAll("#dataTable tbody tr");
+        const days = [];
+        const sizes = [];
+
+        rows.forEach((row) => {
+            const day = parseFloat(row.children[0].querySelector("input").value);
+            const size = parseFloat(row.children[1].querySelector("input").value);
+            if (!isNaN(day) && !isNaN(size)) {
+                days.push(day);
+                sizes.push(size);
+            }
+        });
+
+        if (days.length === 0 || sizes.length === 0) {
+            alert("Please enter valid data for at least one day.");
+            return;
+        }
+
+        // Fit the model to the original data
+        const params = levenbergMarquardtFit(days, sizes);
+
+        // Bootstrap to estimate SE and CI
+        const bootstrapParams = bootstrapModel(days, sizes, numBootstrapIterations);
+        const statistics = params.map((_, index) =>
+            calculateBootstrapStatistics(bootstrapParams, index)
+        );
+
+        const [L, K, m, W0] = params;
+
+        document.getElementById("results").innerHTML = `
+            <p><strong>Estimated Parameters:</strong></p>
+            <p>L (Carrying Capacity): ${L.toFixed(4)} ± ${statistics[0].se.toFixed(4)} 
+               (95% CI: [${statistics[0].ciLower.toFixed(4)}, ${statistics[0].ciUpper.toFixed(4)}])</p>
+            <p>K (Growth Rate): ${K.toFixed(4)} ± ${statistics[1].se.toFixed(4)} 
+               (95% CI: [${statistics[1].ciLower.toFixed(4)}, ${statistics[1].ciUpper.toFixed(4)}])</p>
+            <p>m (Inflection Point): ${m.toFixed(4)} ± ${statistics[2].se.toFixed(4)} 
+               (95% CI: [${statistics[2].ciLower.toFixed(4)}, ${statistics[2].ciUpper.toFixed(4)}])</p>
+        `;
+
+        const tPred = Array.from({ length: Math.max(...days) + 1 }, (_, i) => i);
+        const yPred = tPred.map((t) => logisticModel(t, params));
+
+        if (chartInstance) chartInstance.destroy();
+
+        const ctx = document.getElementById("chart").getContext("2d");
+        chartInstance = new Chart(ctx, {
+            type: "line",
+            data: {
+                labels: tPred,
+                datasets: [
+                    {
+                        label: "Model Prediction",
+                        data: yPred,
+                        borderColor: "red",
+                        fill: false,
+                        tension: 0.1,
+                    },
+                    {
+                        label: "Observed Data",
+                        data: sizes,
+                        borderColor: "blue",
+                        backgroundColor: "blue",
+                        fill: false,
+                        tension: 0.1,
+                        pointStyle: "circle",
+                        pointRadius: 5,
+                        showLine: false,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { title: { display: true, text: "Days" }, min: 0 },
+                    y: { title: { display: true, text: "Size" } },
+                },
+            },
+        });
+    }
     </script>
 </body>
 </html>
